@@ -134,7 +134,7 @@ function called by clicking."
       (let ((buffer-read-only))
         (erase-buffer)
         (insert (propertize "Category View" 'face 'pona:face-subtitle) "\n\n")
-        (insert (pona:render-button "Search" 'pona:exec-search) "\n\n")
+        (insert (pona:render-button "Search" 'pona:open-search-buffer) "\n\n")
         (loop for i in (pona:category-list)
               for line = i
               do (insert (pona:render-link line 'pona:jump-to-category) "\n"))
