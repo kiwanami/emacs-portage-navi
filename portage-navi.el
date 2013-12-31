@@ -20,7 +20,7 @@
 
 ;;; Commentary:
 
-;; 
+;;
 
 ;;; Code:
 
@@ -28,7 +28,11 @@
 (require 'ctable)
 (require 'xml)
 
-(defface pona:face-title 
+;;; Customize variables
+
+(defvar pona:portage-dir "/usr/portage" "pona:portage-dir.")
+
+(defface pona:face-title
   '((((class color) (background light))
      :foreground "Deeppink2" :height 1.5 :inherit variable-pitch)
     (((class color) (background dark))
@@ -51,48 +55,6 @@
   "Face for pona items."
   :group 'pona)
 
-
-(defvar pona:portage-dir "/usr/portage" "pona:portage-dir.")
-
-(defvar pona:cache-category-list nil "pona:cache-category-list.")
-
-(defun pona:category-list ()
-  "category-list"
-  (unless pona:cache-category-list
-    (setq pona:cache-category-list (directory-files pona:portage-dir nil "^[^.]")))
-  pona:cache-category-list)
-
-(defun pona:category-package-list-d (category)
-  "package-list
-CATEGORY"
-  (deferred:$
-    (deferred:process-buffer "eix" "--xml" "-C" category)
-    (deferred:nextc it
-      (lambda (buf)
-        (let* ((dom (with-current-buffer buf
-                      (xml-parse-region)))
-               (cats (xml-get-children (car dom) 'category)))
-          (xml-get-children (car cats) 'package))))))
-
-(defun pona:search-category-package-list-d (search-text)
-  "search-package-list-d
-SEARCH-TEXT"
-  (deferred:$
-    (deferred:process-buffer "eix" "--xml" "-S" search-text)
-    (deferred:nextc it
-      (lambda (buf)
-        (let* ((dom (with-current-buffer buf
-                      (xml-parse-region)))
-               (cats (xml-get-children (car dom) 'category)))
-          cats)))))
-
-(defun pona:package-equery-use-d (package)
-  (deferred:process "equery" "-C" "uses" (xml-get-attribute package 'name)))
-
-
-
-(defvar pona:category-buffer-name " *pona:category-buffer")
-
 (defface pona:face-toolbar-button
   '((((class color) (background light))
      :foreground "Lightskyblue4" :background "White")
@@ -100,247 +62,22 @@ SEARCH-TEXT"
      :foreground "Gray10" :weight bold))
   "Face for button on toolbar" :group 'pona)
 
-(defun pona:render-button (title command)
-  "[internal] Return a decorated text for the toolbar buttons.
-TITLE is a button title.  COMMAND is a interactive command
-function called by clicking."
-  (let ((text (concat "[" title "]"))
-        (keymap (make-sparse-keymap)))
-    (define-key keymap [mouse-1] command)
-    (define-key keymap (kbd "RET") command)
-    (define-key keymap (kbd "C-m") command)
-    (propertize text
-                'face 'pona:face-toolbar-button
-                'keymap keymap
-                'mouse-face 'highlight)))
-
-(defun pona:render-link (title command)
-  "[internal] Return a decorated text for the link buttons.
-TITLE is a button title.  COMMAND is a interactive command
-function called by clicking."
-  (let ((keymap (make-sparse-keymap)))
-    (define-key keymap [mouse-1] command)
-    (define-key keymap (kbd "RET") command)
-    (define-key keymap (kbd "C-m") command)
-    (propertize title
-                'face 'pona:face-item
-                'keymap keymap
-                'mouse-face 'highlight)))
-
-(defun pona:category-buffer ()
-  "category-buffer"
-  (let ((buf (get-buffer-create pona:category-buffer-name)))
-    (with-current-buffer buf
-      (let ((buffer-read-only))
-        (erase-buffer)
-        (insert (propertize "Category View" 'face 'pona:face-subtitle) "\n\n")
-        (insert (pona:render-button "Search" 'pona:open-search-buffer) "\n\n")
-        (loop for i in (pona:category-list)
-              for line = i
-              do (insert (pona:render-link line 'pona:jump-to-category) "\n"))
-        (hl-line-highlight))
-      (goto-char (point-min))
-      (setq buffer-read-only t))
-    buf))
-
-(defun pona:jump-to-category ()
-  (interactive)
-  (let* ((text (thing-at-point 'line))
-         (catnam (replace-regexp-in-string "\n+$" "" text)))
-    (pona:open-list-category-buffer catnam)))
-
-(defun pona:open-category-buffer ()
-  "open-category-buffer"
-  (interactive)
-  (switch-to-buffer (pona:category-buffer)))
-
-
-(defun pona:package-item-gen (package item)
-  (car (xml-node-children
-        (car (xml-get-children package item)))))
-
-(defun pona:package-description (package)
-  (pona:package-item-gen package 'description))
-
-(defun pona:package-licenses (package)
-  (pona:package-item-gen package 'licenses))
-
-(defun pona:package-homepage (package)
-  (pona:package-item-gen package 'homepage))
-
-(defun pona:package-latest-version (package)
-  "package-latest-version
-PACKAGE"
-  (let* ((vers (xml-get-children package 'version))
-         latest)
-    (loop with latest-ver = nil
-          for v in vers
-          for id = (xml-get-attribute v 'id)
-          do
-          (when (or (null latest) (string< latest-ver id))
-            (setq latest v latest-ver id)))
-    latest))
-
-(defun pona:package-installed-version (package)
-  "package-installed-version
-PACKAGE"
-  (let* ((vers (xml-get-children package 'version))
-         installed)
-    (loop for v in vers 
-          for id = (xml-get-attribute v 'id)
-          if (xml-get-attribute-or-nil v 'installed)
-          return v)))
-
-(defvar pona:list-buffer-name " *pona:list-buffer")
-
-(defun pona:make-package-table--line (package)
-  "make-package-table--line
-PACKAGE"
-  (let* ((name (xml-get-attribute package 'name))
-         (vers (xml-get-children package 'version))
-         latest installed)
-    (loop with latest-ver = nil
-          for v in vers 
-          for id = (xml-get-attribute v 'id)
-          for installed-ver = (xml-get-attribute-or-nil v 'installed)
-          do
-          (when installed-ver (setq installed v))
-          (when (or (null latest) (string< latest-ver id))
-            (setq latest v latest-ver id)))
-    (list name
-          (if installed (xml-get-attribute installed 'id) "")
-          (xml-get-attribute latest 'id)
-          (pona:package-description package)
-          package)))
-
-(defun pona:make-package-table (buf packages)
-  "make-package-table
-PACKAGES"
-  (let* ((param 
-          (copy-ctbl:param ctbl:default-rendering-param))
-         (column-models
-          (list 
-           (make-ctbl:cmodel :title "No" :align 'right)
-           (make-ctbl:cmodel :title "Name" :align 'left)
-           (make-ctbl:cmodel :title "Installed" :align 'left)
-           (make-ctbl:cmodel :title "Latest" :align 'left)
-           (make-ctbl:cmodel :title "Description" :align 'left)))
-         (data
-          (loop for i in packages
-                for no from 1
-                collect (cons no (pona:make-package-table--line i))))
-         (model
-          (make-ctbl:model
-           :column-model column-models :data data))
-         component)
-    (setf (ctbl:param-fixed-header param) t)
-    (setq component
-          (ctbl:create-table-component-buffer
-           :buffer buf :model model :param param))
-    (ctbl:cp-add-click-hook
-     component (lambda () 
-                 (let* ((row (ctbl:cp-get-selected-data-row component))
-                        (package (nth 5 row)))
-                   (when package
-                     (pona:open-package-detail-buffer package)))))
-    (ctbl:cp-get-buffer component)))
-
-(defun pona:display-message (buf message)
-  "display-message
-MESSAGE"
-  (with-current-buffer buf
-    (let ((buffer-read-only))
-      (erase-buffer)
-      (insert message "\n"))))
-
-(defun pona:list-package-buffer-gen (deferred-packages)
-  "list-category-buffer-gen"
-  (lexical-let
-      ((buf (get-buffer-create pona:list-buffer-name)))
-    (pona:display-message buf "[processing...]")
-    (deferred:try
-      (deferred:$ deferred-packages
-        (deferred:nextc it
-          (lambda (packages)
-            (pona:make-package-table buf packages))))
-      :catch
-      (lambda (err)
-        (pona:display-message buf (concat "[error!]\n" (pp-to-string err)))))
-    buf))
-
-(defun pona:open-list-category-buffer (cat-name)
-  "list-category-buffer
-CAT-NAME"
-  (pop-to-buffer
-   (pona:list-package-buffer-gen
-    (pona:category-package-list-d cat-name))))
-
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Utilities
 
-(defun pona:make-category-package-table (buf categories)
-  "make-category-package-table"
-  (let* ((param 
-          (copy-ctbl:param ctbl:default-rendering-param))
-         (column-models
-          (list 
-           (make-ctbl:cmodel :title "No" :align 'right)
-           (make-ctbl:cmodel :title "Category" :align 'left)
-           (make-ctbl:cmodel :title "Name" :align 'left)
-           (make-ctbl:cmodel :title "Installed" :align 'left)
-           (make-ctbl:cmodel :title "Latest" :align 'left)
-           (make-ctbl:cmodel :title "Description" :align 'left)))
-         (data
-          (loop with ret = nil
-                with no = 0
-                for c in categories
-                for cn = (xml-get-attribute c 'name) do
-                (loop for p in (xml-get-children c 'package) do
-                      (push 
-                       (cons 
-                        (incf no)
-                        (cons
-                         cn (pona:make-package-table--line p))) ret))
-                finally return (nreverse ret)))
-         (model
-          (make-ctbl:model
-           :column-model column-models :data data))
-         component)
-    (setf (ctbl:param-fixed-header param) t)
-    (setq component
-          (ctbl:create-table-component-buffer
-           :buffer buf :model model :param param))
-    (ctbl:cp-add-click-hook
-     component (lambda () 
-                 (let* ((row (ctbl:cp-get-selected-data-row component))
-                        (package (nth 6 row)))
-                   (when package
-                     (pona:open-package-detail-buffer package)))))
-    (ctbl:cp-get-buffer component)))
+(defmacro pona:aand (test &rest rest)
+  "Anaphoric AND."
+  (declare (debug (form &rest form)))
+  `(let ((it ,test))
+     (if it ,(if rest (macroexpand-all `(e2wm:aand ,@rest)) 'it))))
 
-(defun pona:list-category-package-buffer-gen (deferred-catpacks)
-  "list-category-package-buffer-gen"
-  (lexical-let
-      ((buf (get-buffer-create pona:list-buffer-name)))
-    (pona:display-message buf "[processing...]")
-    (deferred:try
-      (deferred:$ deferred-catpacks
-        (deferred:nextc it
-          (lambda (categories)
-            (pona:make-category-package-table buf categories))))
-      :catch
-      (lambda (err)
-        (pona:display-message buf (concat "[error!]\n" (pp-to-string err)))))
-    buf))
-
-(defun pona:open-search-buffer (&optional text)
-  "exec-search"
-  (interactive)
-  (let ((search-text (or text (read-string "Search text: "))))
-    (pop-to-buffer
-     (pona:list-category-package-buffer-gen
-      (pona:search-category-package-list-d search-text)))))
-
-
+(defmacro pona:aif (test-form then-form &rest else-forms)
+  "Anaphoric IF."
+  (declare (debug (form form &rest form)))
+  `(let ((it ,test-form))
+     (if it ,then-form ,@else-forms)))
+(put 'pona:aif 'lisp-indent-function 2)
 
 (defun pona:rt-format (text &rest args)
   "[utility] Format strings with faces. TEXT is format
@@ -365,11 +102,432 @@ KEYMAP-LIST is a source list like ((key . command) ... )."
      keymap-list)
     map))
 
+(defun pona:render-button (title command)
+  "[internal] Return a decorated text for the toolbar buttons.
+TITLE is a button title.  COMMAND is a interactive command
+function called by clicking."
+  (pona:render-link (concat "[" title "]") command))
+
+(defun pona:render-link (title command)
+  "[internal] Return a decorated text for the link buttons.
+TITLE is a button title.  COMMAND is a interactive command
+function called by clicking."
+  (let ((keymap (make-sparse-keymap)))
+    (define-key keymap [mouse-1] command)
+    (define-key keymap (kbd "RET") command)
+    (define-key keymap (kbd "C-m") command)
+    (propertize title
+                'face 'pona:face-item
+                'keymap keymap
+                'mouse-face 'highlight)))
+
 (defun pona:kill-this-buffer ()
   (interactive)
   (kill-this-buffer))
 
-(defvar pona:package-detail-mode-map 
+(defun pona:display-message (buf message)
+  "[internal] Display MESSAGE at the BUF during waiting for processing."
+  (with-current-buffer buf
+    (let ((buffer-read-only))
+      (erase-buffer)
+      (insert message "\n"))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; portage low-level interfaces
+
+(defvar pona:cache-category-list nil "pona:cache-category-list.")
+
+(defun pona:category-list ()
+  "Return a list of top-level categories."
+  (unless pona:cache-category-list
+    (setq pona:cache-category-list 
+          (directory-files pona:portage-dir nil "^[a-z]+-[a-z]+")))
+  pona:cache-category-list)
+
+(defun pona:category-package-list-d (category)
+  "Return a deferred DOM object of packages in the CATEGORY."
+  (deferred:$
+    (deferred:process-buffer "eix" "--xml" "-C" category)
+    (deferred:nextc it
+      (lambda (buf)
+        (let* ((dom (with-current-buffer buf
+                      (xml-parse-region)))
+               (cats (xml-get-children (car dom) 'category)))
+          (pona:trs-package-dom-to-alist
+           (xml-get-children (car cats) 'package)))))))
+
+(defun pona:search-category-package-list-d (search-text)
+  "Return a deferred DOM object of packages of search result for SEARCH-TEXT."
+  (deferred:$
+    (deferred:process-buffer "eix" "--xml" "-S" search-text)
+    (deferred:nextc it
+      (lambda (buf)
+        (let* ((dom (with-current-buffer buf
+                      (xml-parse-region)))
+               (cats (xml-get-children (car dom) 'category)))
+          (pona:trs-category-dom-to-alist cats))))))
+
+(defun pona:package-equery-use-d (package)
+  "Return a deferred text for details of use flags of PACKAGE."
+  (deferred:process "equery" "-C" "uses" (pona:package-name package)))
+
+;; ## eix model
+;; ( ; ## category alist
+;;  (category-name1
+;;   ( ; ## package alist
+;;    ("package-name1" (package object))
+;;    ("package-name2" (package object))
+;;     ...
+;; ))
+
+(defun pona:model-get-category (category-name category-alist)
+  "Return an alist of packages for CATEGORY-NAME."
+  (pona:aand (assoc category-name category-alist) (cdr it)))
+
+(defun pona:model-get-package (package-name package-alist)
+  "Return the package for PACKAGE-NAME."
+  (pona:aand (assoc package-name package-alist) (cdr it)))
+
+
+(defstruct pona:package
+  name description licenses homepage 
+  installed-version latest-version versions)
+
+;; ## package object
+;; name: "package-name"
+;; description: "description"
+;; licenses: "licenses text"
+;; homepage: "http://example.com/some/path"
+;; installed-version: "2.25"
+;; latest-version: "2.25"
+;; versions: (version list)
+
+(defun pona:package-get-version (package id)
+  (loop for i in (pona:package-versions package)
+        for iid = (pona:version-id i)
+        if (equal id iid) return i))
+
+(defstruct pona:version
+  id installed mask iuse depend rdepend)
+
+;; ## version object
+;; id: "2.25"
+;; installed: t
+;; mask: "keywords"
+;; iuse: "flag1 flag2"
+;; depend: "dev-lang/perl virtual/perl-Term-ANSIColor"
+;; rdepend: "dev-lang/perl virtual/perl-Term-ANSIColor"
+
+;; Transforming DOM to model objects.
+
+(defun pona:trs-package-dom-to-alist (packages-dom)
+  "[internal] "
+  (loop for package in packages-dom
+        collect (pona:trs--package-item package)))
+
+(defun pona:trs-category-dom-to-alist (categories-dom)
+  "[internal] "
+  (loop with ret = nil
+        for c in categories-dom
+        for cn = (xml-get-attribute c 'name)
+        collect
+        (cons
+         cn (pona:trs-package-dom-to-alist
+             (xml-get-children c 'package)))))
+
+(defun pona:trs--package-item (package-dom)
+  ""
+  (let* ((name (xml-get-attribute package-dom 'name))
+         (vers-dom (xml-get-children package-dom 'version))
+         vers-alist latest installed latest-ver)
+    (loop for v in vers-dom
+          for id = (xml-get-attribute v 'id)
+          for installed-ver = (xml-get-attribute-or-nil v 'installed)
+          for mask = (pona:xml-get-attr v 'mask 'type)
+          for iuse = (pona:xml-get-text v 'iuse)
+          for dep  = (pona:xml-get-text v 'depend)
+          for rdep = (pona:xml-get-text v 'rdepend)
+          do
+          (when installed-ver (setq installed id))
+          (when (or (null latest) (and (string< latest-ver id) (not (string-match "9999" id))))
+            (setq latest v latest-ver id))
+          (push (make-pona:version
+                 :id id :installed (and installed-ver t)
+                 :mask mask :iuse iuse
+                 :depend dep :rdepend rdep)
+                vers-alist))
+  (cons name
+        (make-pona:package
+         :name name
+         :description (pona:xml-get-text package-dom 'description)
+         :licenses (pona:xml-get-text package-dom 'licenses)
+         :homepage (pona:xml-get-text package-dom 'homepage)
+         :installed-version installed
+         :latest-version latest-ver
+         :versions (nreverse vers-alist)))))
+
+(defun pona:xml-get-elm (parent node-sym)
+  "[internal] Return the first child element [NODE-SYM] at the PARENT node.
+If not found, return nil."
+  (pona:aand (xml-get-children parent node-sym)
+             (car it)))
+
+(defun pona:xml-get-text (parent node-sym)
+  "[internal] Return the text content of the first child node [NODE-SYM] at the PARENT node.
+If not found, return nil."
+  (pona:aand (pona:xml-get-elm parent node-sym)
+             (car (xml-node-children it))))
+
+(defun pona:xml-get-attr (parent node-sym attr-sym)
+  "[internal] Return the attribute [ATTR-SYM] text of the first child node [NODE-SYM] at the PARENT node.
+If not found, return nil."
+  (pona:aand (pona:xml-get-elm parent node-sym)
+             (xml-get-attribute it attr-sym)))
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Home Buffer : top-level category buffer
+
+;; TODO: world, system, set? global settings, global actions
+
+(defun pona:home-buffer--get-catnam ()
+  "[internal] Return a category name at the cursor point."
+  (get-text-property (point) 'pona:category-name))
+
+(defun pona:home-buffer--put-catnam (text category-name)
+  "[internal] Put the category name on the given TEXT."
+  (propertize text 'pona:category-name category-name))
+
+
+(defun pona:home-buffer--jump-to-category ()
+  (interactive)
+  (pona:aand (pona:home-buffer--get-catnam)
+             (pona:open-list-category-buffer it)))
+
+(defun pona:home-buffer--refresh ()
+  (interactive)
+  (pona:home-buffer))
+
+(defun pona:open-home-buffer ()
+  "Open the home buffer."
+  (interactive)
+  (switch-to-buffer (pona:home-buffer)))
+
+(defvar pona:home-buffer-mode-map
+  (pona:define-keymap
+   '(
+     ;; navigation
+     ("n" . next-line)
+     ("j" . next-line)
+     ("p" . previous-line)
+     ("k" . previous-line)
+     ("d" . scroll-up)
+     ("u" . scroll-down)
+
+     ;; action
+
+     ("q" . pona:kill-this-buffer)
+     ("R" . pona:home-buffer--refresh)
+     ("s" . pona:open-search-results) ; ###
+     ("a" . pona:anything-search)     ; ###
+     )))
+
+(defvar pona:home-buffer-mode-hook nil
+  "pona:home-buffer-mode-hook.")
+
+(defun pona:home-buffer-mode (&optional arg)
+  "Set up major mode `pona:home-buffer-mode'.
+
+\\{pona:home-buffer-mode-map}"
+  (kill-all-local-variables)
+  (setq truncate-lines t)
+  (use-local-map pona:home-buffer-mode-map)
+  (setq major-mode 'pona:home-buffer-mode
+        mode-name "Portage Navi Home Mode")
+  (setq buffer-undo-list t)
+  (hl-line-mode) (hl-line-highlight)
+  (run-hooks 'pona:home-buffer-mode-hook))
+
+(defvar pona:home-buffer-name "*pona:home-buffer")
+
+(defun pona:home-buffer ()
+  "Build up home buffer and return the buffer object."
+  (let ((buf (get-buffer-create pona:home-buffer-name)))
+    (with-current-buffer buf
+      (let ((buffer-read-only))
+        (erase-buffer)
+        (insert (propertize "Portage Navi Home" 'face 'pona:face-subtitle) "\n\n")
+        (insert (pona:render-button "Search" 'pona:open-search-results) "\n\n")
+        (loop for i in (pona:category-list)
+              for line = (pona:home-buffer--put-catnam i i)
+              do (insert (pona:render-link line 'pona:home-buffer--jump-to-category) "\n")))
+      (goto-char (point-min))
+      (pona:home-buffer-mode)
+      (setq buffer-read-only t))
+    buf))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Category Package List Buffer
+
+(defvar pona:list-buffer-map 
+  (pona:define-keymap
+   '(
+     ;; action
+     ("q" . pona:kill-this-buffer)
+     )))
+
+(defvar pona:list-buffer-name " *pona:list-buffer")
+
+(defun pona:make-package-table--line (package)
+  (list (pona:package-name package)
+        (pona:aif (pona:package-installed-version package) it "")
+        (pona:package-latest-version package)
+        (pona:package-description package)
+        package))
+
+(defun pona:make-package-table (buf packages)
+  (let* ((param
+          (copy-ctbl:param ctbl:default-rendering-param))
+         (column-models
+          (list
+           (make-ctbl:cmodel :title "No" :align 'right)
+           (make-ctbl:cmodel :title "Name" :align 'left)
+           (make-ctbl:cmodel :title "Installed" :align 'left)
+           (make-ctbl:cmodel :title "Latest" :align 'left)
+           (make-ctbl:cmodel :title "Description" :align 'left)))
+         (data
+          (loop for (pname . i) in packages
+                for no from 1
+                collect (cons no (pona:make-package-table--line i))))
+         (model
+          (make-ctbl:model
+           :column-model column-models :data data))
+         component)
+    (setf (ctbl:param-fixed-header param) t)
+    (setf (ctbl:param-bg-colors param)
+          (lambda (model row-id col-id str)
+            (when (= 2 col-id)
+              (let* ((rows (ctbl:model-data model))
+                     (row (nth row-id rows))
+                     (cver (nth col-id row))
+                     (lver (nth (1+ col-id) row)))
+                (if (and (not (string= cver "")) 
+                         (string< cver lver)) "LightPink" nil)))))
+    (setq component
+          (ctbl:create-table-component-buffer
+           :buffer buf :model model :custom-map pona:list-buffer-map :param param))
+    (ctbl:cp-add-click-hook
+     component (lambda ()
+                 (let* ((row (ctbl:cp-get-selected-data-row component))
+                        (package (nth 5 row)))
+                   (when package
+                     (pona:open-package-detail-buffer package)))))
+    (ctbl:cp-get-buffer component)))
+
+(defun pona:list-package-buffer-gen (deferred-packages)
+  "list-category-buffer-gen"
+  (lexical-let
+      ((buf (get-buffer-create pona:list-buffer-name)))
+    (pona:display-message buf "[processing...]")
+    (deferred:try
+      (deferred:$ deferred-packages
+        (deferred:nextc it
+          (lambda (packages)
+            (pona:make-package-table buf packages))))
+      :catch
+      (lambda (err)
+        (pona:display-message buf (concat "[error!]\n" (pp-to-string err)))))
+    buf))
+
+(defun pona:open-list-category-buffer (cat-name)
+  (pop-to-buffer
+   (pona:list-package-buffer-gen
+    (pona:category-package-list-d cat-name))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Search Result Buffer
+
+(defun pona:make-category-package-table (buf categories)
+  "make-category-package-table"
+  (let* ((param
+          (copy-ctbl:param ctbl:default-rendering-param))
+         (column-models
+          (list
+           (make-ctbl:cmodel :title "No" :align 'right)
+           (make-ctbl:cmodel :title "Category" :align 'left)
+           (make-ctbl:cmodel :title "Name" :align 'left)
+           (make-ctbl:cmodel :title "Installed" :align 'left)
+           (make-ctbl:cmodel :title "Latest" :align 'left)
+           (make-ctbl:cmodel :title "Description" :align 'left)))
+         (data
+          (loop with ret = nil
+                with no = 0
+                for (cn . ps) in categories do
+                (loop for (pn . p) in ps do
+                      (push
+                       (cons
+                        (incf no)
+                        (cons cn (pona:make-package-table--line p))) ret))
+                finally return (nreverse ret)))
+         (model
+          (make-ctbl:model
+           :column-model column-models :data data))
+         component)
+    (setf (ctbl:param-fixed-header param) t)
+    (setf (ctbl:param-bg-colors param)
+          (lambda (model row-id col-id str)
+            (when (= 3 col-id)
+              (let* ((rows (ctbl:model-data model))
+                     (row (nth row-id rows))
+                     (cver (nth col-id row))
+                     (lver (nth (+1 col-id) row)))
+                (if (and (not (string= cver "")) 
+                         (string< cver lver)) "LightPink" nil)))))
+    (setq component
+          (ctbl:create-table-component-buffer
+           :buffer buf :model model :custom-map pona:list-buffer-map :param param))
+    (ctbl:cp-add-click-hook
+     component (lambda ()
+                 (let* ((row (ctbl:cp-get-selected-data-row component))
+                        (package (nth 6 row)))
+                   (when package
+                     (pona:open-package-detail-buffer package)))))
+    (ctbl:cp-get-buffer component)))
+
+(defun pona:list-category-package-buffer-gen (deferred-catpacks)
+  "list-category-package-buffer-gen"
+  (lexical-let
+      ((buf (get-buffer-create pona:list-buffer-name)))
+    (pona:display-message buf "[processing...]")
+    (deferred:try
+      (deferred:$ deferred-catpacks
+        (deferred:nextc it
+          (lambda (categories)
+            (pona:make-category-package-table buf categories))))
+      :catch
+      (lambda (err)
+        (pona:display-message buf (concat "[error!]\n" (pp-to-string err)))))
+    buf))
+
+(defun pona:open-search-results (&optional text)
+  "exec-search"
+  (interactive)
+  (let ((search-text (or text (read-string "Search text: "))))
+    (pop-to-buffer
+     (pona:list-category-package-buffer-gen
+      (pona:search-category-package-list-d search-text)))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Package Detail Buffer
+
+;; TODO: version list, depends, jump, file list
+
+(defvar pona:package-detail-mode-map
   (pona:define-keymap
    '(
      ("q" . pona:kill-this-buffer))))
@@ -389,16 +547,12 @@ KEYMAP-LIST is a source list like ((key . command) ... )."
   (setq buffer-undo-list t)
   (run-hooks 'pona:package-detail-mode-hook))
 
-
-
 (defvar pona:package-detail-buffer-name " *pona:package-detail-buffer")
 
 (defun pona:open-package-detail-buffer (package)
   "open-package-detail-buffer
 PACKAGE"
-  (let ((buf (get-buffer-create pona:package-detail-buffer-name))
-        (lver (pona:package-latest-version package))
-        (iver (pona:package-installed-version package)))
+  (let ((buf (get-buffer-create pona:package-detail-buffer-name)))
     (with-current-buffer buf
       (let ((buffer-read-only))
         (erase-buffer)
@@ -406,9 +560,9 @@ PACKAGE"
         (insert
          (pona:rt-format
           "%s\nLatest: %s  Installed: %s\n"
-          (cons (xml-get-attribute package 'name) 'pona:face-title)
-          (xml-get-attribute lver 'id) 
-          (or (and iver (xml-get-attribute iver 'id)) "(not installed)")))
+          (cons (pona:package-name package) 'pona:face-title)
+          (pona:package-latest-version package)
+          (pona:aif (pona:package-installed-version package) it "(not installed)")))
         (insert
          (pona:rt-format
           "Description: %s\nLicenses: %s\nHomepage: %s\n"
@@ -425,7 +579,7 @@ PACKAGE"
 (defun pona:insert-deferred (buf d)
   (lexical-let ((buf buf))
     (deferred:nextc d
-      (lambda (text) 
+      (lambda (text)
         (with-current-buffer buf
           (let ((buffer-read-only))
             (goto-char (point-max))
@@ -436,9 +590,9 @@ PACKAGE"
 
 (defun pona:portage-navi ()
   (interactive)
-  (pona:open-category-buffer))
+  (pona:open-home-buffer))
 
-;; (progn (eval-current-buffer) (pona:open-category-buffer))
+;; (progn (eval-current-buffer) (pona:open-home-buffer))
 ;; (pona:open-list-category-buffer "app-text")
 ;; (pona:open-search-buffer "chrome")
 
