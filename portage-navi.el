@@ -1,9 +1,9 @@
 ;;; portage-navi.el --- portage viewer
 
-;; Copyright (C) 2013  SAKURAI Masashi
+;; Copyright (C) 2013, 2014  SAKURAI Masashi
 
 ;; Author:  <m.sakurai at kiwanami.net>
-;; Keywords: tools
+;; Keywords: tools, gentoo
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -147,15 +147,16 @@ function called by clicking."
 
 (defun pona:category-package-list-d (category)
   "Return a deferred DOM object of packages in the CATEGORY."
-  (deferred:$
-    (deferred:process-buffer "eix" "--xml" "-C" category)
-    (deferred:nextc it
-      (lambda (buf)
-        (let* ((dom (with-current-buffer buf
-                      (xml-parse-region)))
-               (cats (xml-get-children (car dom) 'category)))
-          (pona:trs-package-dom-to-alist
-           (xml-get-children (car cats) 'package)))))))
+  (lexical-let ((category category))
+    (deferred:$
+      (deferred:process-buffer "eix" "--xml" "-C" category)
+      (deferred:nextc it
+        (lambda (buf)
+          (let* ((dom (with-current-buffer buf
+                        (xml-parse-region)))
+                 (cats (xml-get-children (car dom) 'category)))
+            (pona:trs-package-dom-to-alist
+             category (xml-get-children (car cats) 'package))))))))
 
 (defun pona:search-category-package-list-d (search-text)
   "Return a deferred DOM object of packages of search result for SEARCH-TEXT."
@@ -170,7 +171,10 @@ function called by clicking."
 
 (defun pona:package-equery-use-d (package)
   "Return a deferred text for details of use flags of PACKAGE."
-  (deferred:process "equery" "-C" "uses" (pona:package-name package)))
+  (deferred:process "equery" "-C" "uses" 
+    (format "%s/%s"
+            (pona:package-category-name package)
+            (pona:package-name package))))
 
 ;; ## eix model
 ;; ( ; ## category alist
@@ -191,11 +195,12 @@ function called by clicking."
 
 
 (defstruct pona:package
-  name description licenses homepage 
+  name category-name description licenses homepage 
   installed-version latest-version versions)
 
 ;; ## package object
 ;; name: "package-name"
+;; category-name: "cat-name"
 ;; description: "description"
 ;; licenses: "licenses text"
 ;; homepage: "http://example.com/some/path"
@@ -221,10 +226,10 @@ function called by clicking."
 
 ;; Transforming DOM to model objects.
 
-(defun pona:trs-package-dom-to-alist (packages-dom)
+(defun pona:trs-package-dom-to-alist (category-name packages-dom)
   "[internal] "
   (loop for package in packages-dom
-        collect (pona:trs--package-item package)))
+        collect (pona:trs--package-item category-name package)))
 
 (defun pona:trs-category-dom-to-alist (categories-dom)
   "[internal] "
@@ -234,9 +239,9 @@ function called by clicking."
         collect
         (cons
          cn (pona:trs-package-dom-to-alist
-             (xml-get-children c 'package)))))
+             cn (xml-get-children c 'package)))))
 
-(defun pona:trs--package-item (package-dom)
+(defun pona:trs--package-item (category-name package-dom)
   ""
   (let* ((name (xml-get-attribute package-dom 'name))
          (vers-dom (xml-get-children package-dom 'version))
@@ -260,6 +265,7 @@ function called by clicking."
   (cons name
         (make-pona:package
          :name name
+         :category-name category-name
          :description (pona:xml-get-text package-dom 'description)
          :licenses (pona:xml-get-text package-dom 'licenses)
          :homepage (pona:xml-get-text package-dom 'homepage)
