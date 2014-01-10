@@ -20,7 +20,7 @@
 
 ;;; Commentary:
 
-;;
+;; 
 
 ;;; Code:
 
@@ -171,6 +171,25 @@ function called by clicking."
           (kill-buffer buf)
           (pona:trs-category-dom-to-alist cats))))))
 
+;; (deferred:pp (pona:search-category-package-list-d "ocaml"))
+
+(defun pona:package-info-d (category-package-name)
+  "Return a deferred package object for CATEGORY-PACKAGE-NAME.
+If not found, return nil."
+  (deferred:try
+    (deferred:nextc (deferred:process-buffer "eix" "--xml" category-package-name)
+      (lambda (buf)
+        (let* ((dom (with-current-buffer buf
+                      (xml-parse-region)))
+               (cats (xml-get-children (car dom) 'category))
+               (ret (pona:trs-category-dom-to-alist cats)))
+          (kill-buffer buf)
+          (if ret (cdr (car (cdr (car ret))))))))
+    :catch
+    (lambda (err) nil)))
+
+;; (deferred:pp (pona:package-info-d "dev-lang/ocaml"))
+
 (defun pona:package-equery-use-d (package)
   "Return a deferred text for details of use flags of PACKAGE."
   (deferred:process "equery" "-C" "uses" 
@@ -197,18 +216,19 @@ function called by clicking."
 
 
 (defstruct pona:package
+  "Package object
+
+name: \"package-name\"
+category-name: \"cat-name\"
+description: \"description\"
+licenses: \"licenses text\"
+homepage: \"http://example.com/some/path\"
+installed-version: \"2.25\"
+latest-version: \"2.25\"
+versions: (version list)"
   name category-name description licenses homepage 
   installed-version latest-version versions)
 
-;; ## package object
-;; name: "package-name"
-;; category-name: "cat-name"
-;; description: "description"
-;; licenses: "licenses text"
-;; homepage: "http://example.com/some/path"
-;; installed-version: "2.25"
-;; latest-version: "2.25"
-;; versions: (version list)
 
 (defun pona:package-get-version (package id)
   (loop for i in (pona:package-versions package)
@@ -216,15 +236,16 @@ function called by clicking."
         if (equal id iid) return i))
 
 (defstruct pona:version
+  "Version object
+
+id: \"2.25\"
+installed: t
+mask: \"keywords\"
+iuse: \"flag1 flag2\"
+depend: \"dev-lang/perl virtual/perl-Term-ANSIColor\"
+rdepend: \"dev-lang/perl virtual/perl-Term-ANSIColor\" "
   id installed mask iuse depend rdepend)
 
-;; ## version object
-;; id: "2.25"
-;; installed: t
-;; mask: "keywords"
-;; iuse: "flag1 flag2"
-;; depend: "dev-lang/perl virtual/perl-Term-ANSIColor"
-;; rdepend: "dev-lang/perl virtual/perl-Term-ANSIColor"
 
 ;; Transforming DOM to model objects.
 
@@ -244,7 +265,7 @@ function called by clicking."
              cn (xml-get-children c 'package)))))
 
 (defun pona:trs--package-item (category-name package-dom)
-  ""
+  "[internal] "
   (let* ((name (xml-get-attribute package-dom 'name))
          (vers-dom (xml-get-children package-dom 'version))
          vers-alist latest installed latest-ver)
@@ -338,8 +359,7 @@ If not found, return nil."
 
      ("q" . pona:kill-this-buffer)
      ("R" . pona:home-buffer--refresh)
-     ("s" . pona:open-search-results) ; ###
-     ("a" . pona:anything-search)     ; ###
+     ("s" . pona:open-search-results)
      )))
 
 (defvar pona:home-buffer-mode-hook nil
@@ -460,7 +480,6 @@ If not found, return nil."
 ;;; Search Result Buffer
 
 (defun pona:make-category-package-table (buf categories)
-  "make-category-package-table"
   (let* ((param
           (copy-ctbl:param ctbl:default-rendering-param))
          (column-models
@@ -492,7 +511,7 @@ If not found, return nil."
               (let* ((rows (ctbl:model-data model))
                      (row (nth row-id rows))
                      (cver (nth col-id row))
-                     (lver (nth (+1 col-id) row)))
+                     (lver (nth (1+ col-id) row)))
                 (if (and (not (string= cver "")) 
                          (string< cver lver)) "LightPink" nil)))))
     (setq component
@@ -512,10 +531,9 @@ If not found, return nil."
       ((buf (get-buffer-create pona:list-buffer-name)))
     (pona:display-message buf "[processing...]")
     (deferred:try
-      (deferred:$ deferred-catpacks
-        (deferred:nextc it
-          (lambda (categories)
-            (pona:make-category-package-table buf categories))))
+      (deferred:nextc deferred-catpacks
+        (lambda (categories)
+          (pona:make-category-package-table buf categories)))
       :catch
       (lambda (err)
         (pona:display-message buf (concat "[error!]\n" (pp-to-string err)))))
@@ -602,7 +620,7 @@ PACKAGE"
 
 ;; (progn (eval-current-buffer) (pona:open-home-buffer))
 ;; (pona:open-list-category-buffer "app-text")
-;; (pona:open-search-buffer "chrome")
+;; (pona:open-search-results "chrome")
 
 (provide 'portage-navi)
 ;;; portage-navi.el ends here
