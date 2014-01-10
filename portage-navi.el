@@ -155,6 +155,7 @@ function called by clicking."
           (let* ((dom (with-current-buffer buf
                         (xml-parse-region)))
                  (cats (xml-get-children (car dom) 'category)))
+            (kill-buffer buf)
             (pona:trs-package-dom-to-alist
              category (xml-get-children (car cats) 'package))))))))
 
@@ -167,6 +168,7 @@ function called by clicking."
         (let* ((dom (with-current-buffer buf
                       (xml-parse-region)))
                (cats (xml-get-children (car dom) 'category)))
+          (kill-buffer buf)
           (pona:trs-category-dom-to-alist cats))))))
 
 (defun pona:package-equery-use-d (package)
