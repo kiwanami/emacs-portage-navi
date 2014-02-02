@@ -594,6 +594,7 @@ PACKAGE"
 
 
 
+;;;###autoload
 (defun pona:portage-navi ()
   (interactive)
   (pona:open-home-buffer))
