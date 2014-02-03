@@ -4,6 +4,8 @@
 
 ;; Author:  <m.sakurai at kiwanami.net>
 ;; Keywords: tools, gentoo
+;; Package-Requires: ((concurrent "0.3.1") (ctable "0.1.2"))
+;; URL: https://github.com/kiwanami/emacs-portage-navi
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
