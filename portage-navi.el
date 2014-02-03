@@ -34,7 +34,7 @@
 
 (defface pona:face-title
   '((((class color) (background light))
-     :foreground "Deeppink2" :height 1.5 :inherit variable-pitch)
+     :foreground "MediumBlue" :height 1.5 :inherit variable-pitch)
     (((class color) (background dark))
      :foreground "yellow" :weight bold :height 1.5 :inherit variable-pitch)
     (t :height 1.5 :weight bold :inherit variable-pitch))
@@ -172,6 +172,20 @@ function called by clicking."
           (pona:trs-category-dom-to-alist cats))))))
 
 ;; (deferred:pp (pona:search-category-package-list-d "ocaml"))
+
+(defun pona:set-category-package-list-d (set-name)
+  "Return a deferred DOM object of packages of the SET-NAME."
+  (deferred:$
+    (deferred:process-buffer "eix" "--xml" (concat "--" set-name))
+    (deferred:nextc it
+      (lambda (buf)
+        (let* ((dom (with-current-buffer buf
+                      (xml-parse-region)))
+               (cats (xml-get-children (car dom) 'category)))
+          (kill-buffer buf)
+          (pona:trs-category-dom-to-alist cats))))))
+
+;; (deferred:pp (pona:set-category-package-list-d "world"))
 
 (defun pona:package-info-d (category-package-name)
   "Return a deferred package object for CATEGORY-PACKAGE-NAME.
@@ -382,12 +396,18 @@ If not found, return nil."
 
 (defun pona:home-buffer ()
   "Build up home buffer and return the buffer object."
-  (let ((buf (get-buffer-create pona:home-buffer-name)))
+  (let ((buf (get-buffer-create pona:home-buffer-name)) (br "\n"))
     (with-current-buffer buf
       (let ((buffer-read-only))
         (erase-buffer)
-        (insert (propertize "Portage Navi Home" 'face 'pona:face-subtitle) "\n\n")
-        (insert (pona:render-button "Search" 'pona:open-search-results) "\n\n")
+        (insert (propertize "Portage Navi Home" 'face 'pona:face-title) br)
+        (insert (pona:render-button "Search" 'pona:open-search-results) br br)
+
+        (insert (propertize "Set" 'face 'pona:face-subtitle) br)
+        (insert (pona:render-button "System" 'pona:open-list-system-buffer) "  "
+                (pona:render-button "World"  'pona:open-list-world-buffer) br br)
+        
+        (insert (propertize "Categories" 'face 'pona:face-subtitle) br)
         (loop for i in (pona:category-list)
               for line = (pona:home-buffer--put-catnam i i)
               do (insert (pona:render-link line 'pona:home-buffer--jump-to-category) "\n")))
@@ -547,6 +567,20 @@ If not found, return nil."
      (pona:list-category-package-buffer-gen
       (pona:search-category-package-list-d search-text)))))
 
+(defun pona:open-list-world-buffer ()
+  "world list"
+  (interactive)
+  (pop-to-buffer
+   (pona:list-category-package-buffer-gen
+    (pona:set-category-package-list-d "world"))))
+
+(defun pona:open-list-system-buffer ()
+  "system list"
+  (interactive)
+  (pop-to-buffer
+   (pona:list-category-package-buffer-gen
+    (pona:set-category-package-list-d "system"))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Package Detail Buffer
@@ -620,6 +654,7 @@ PACKAGE"
 
 ;; (progn (eval-current-buffer) (pona:open-home-buffer))
 ;; (pona:open-list-category-buffer "app-text")
+;; (pona:open-list-world-buffer) (pona:open-list-system-buffer)
 ;; (pona:open-search-results "chrome")
 
 (provide 'portage-navi)
