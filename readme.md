@@ -18,6 +18,7 @@ The current status is under construction. Just viewing portage database.
 ## Package Installation
 
 From MELPA, you can install this package as `portage-navi`.
+(thanks @yasuyk!)
 
 ## Manual Installation
 
