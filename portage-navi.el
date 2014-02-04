@@ -490,7 +490,7 @@ If not found, return nil."
               (let* ((rows (ctbl:model-data model))
                      (row (nth row-id rows))
                      (cver (nth col-id row))
-                     (lver (nth (+1 col-id) row)))
+                     (lver (nth (1+ col-id) row)))
                 (if (and (not (string= cver "")) 
                          (string< cver lver)) "LightPink" nil)))))
     (setq component
