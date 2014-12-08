@@ -72,7 +72,7 @@
   "Anaphoric AND."
   (declare (debug (form &rest form)))
   `(let ((it ,test))
-     (if it ,(if rest (macroexpand-all `(e2wm:aand ,@rest)) 'it))))
+     (if it ,(if rest (macroexpand-all `(pona:aand ,@rest)) 'it))))
 
 (defmacro pona:aif (test-form then-form &rest else-forms)
   "Anaphoric IF."
