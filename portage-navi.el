@@ -104,6 +104,20 @@ KEYMAP-LIST is a source list like ((key . command) ... )."
      keymap-list)
     map))
 
+(defun pona:add-keymap (keymap keymap-list &optional prefix)
+  (loop with nkeymap = (copy-keymap keymap)
+        for i in keymap-list
+        do
+        (define-key nkeymap
+          (if (stringp (car i))
+              (read-kbd-macro 
+               (if prefix 
+                   (replace-regexp-in-string "prefix" prefix (car i))
+                 (car i)))
+            (car i))
+          (cdr i))
+        finally return nkeymap))
+
 (defun pona:render-button (title command)
   "[internal] Return a decorated text for the toolbar buttons.
 TITLE is a button title.  COMMAND is a interactive command
@@ -528,14 +542,15 @@ If not found, return nil."
          component)
     (setf (ctbl:param-fixed-header param) t)
     (setf (ctbl:param-bg-colors param)
-          (lambda (model row-id col-id str)
-            (when (= 3 col-id)
-              (let* ((rows (ctbl:model-data model))
-                     (row (nth row-id rows))
-                     (cver (nth col-id row))
-                     (lver (nth (1+ col-id) row)))
-                (if (and (not (string= cver "")) 
-                         (string< cver lver)) "LightPink" nil)))))
+          (lexical-let ((cp component))
+            (lambda (model row-id col-id str)
+              (when (= 3 col-id)
+                (let* ((rows (ctbl:component-sorted-data component))
+                       (row (nth row-id rows))
+                       (cver (nth col-id row))
+                       (lver (nth (1+ col-id) row)))
+                  (if (and (not (string= cver "")) 
+                           (string< cver lver)) "LightPink" nil))))))
     (setq component
           (ctbl:create-table-component-buffer
            :buffer buf :model model :custom-map pona:list-buffer-map :param param))
@@ -631,12 +646,80 @@ PACKAGE"
           (cons (pona:package-description package) nil)
           (cons (pona:package-licenses package) nil)
           (cons (pona:package-homepage package) nil)))
+        (insert (propertize  "Versions:\n" 'face 'pona:face-item))
+        (pona:insert-package-detail-versions-table package)
+        (insert "\n")
         (insert (propertize  "Use flags:\n" 'face 'pona:face-item))
         (goto-char (point-min))
         (pona:insert-deferred
          buf (pona:package-equery-use-d package)))
       (setq buffer-read-only t))
     (pop-to-buffer buf)))
+
+(defvar pona:package-detail-versions-quicklook-buffer " *pona:package-detail-versions-quicklook*" "[internal] ")
+
+(defun pona:package-detail-versions-quicklook-command ()
+  "Display the cell content on the popup buffer."
+  (interactive)
+  (let ((cp (ctbl:cp-get-component)))
+    (when cp
+      (ctbl:cp-set-selected-cell cp (ctbl:cursor-to-nearest-cell))
+      (let ((cell-data (ctbl:cp-get-selected-data-cell cp))
+            (buf (get-buffer-create pona:package-detail-versions-quicklook-buffer)))
+        (with-current-buffer buf
+          (let (buffer-read-only)
+            (edbi:dbview-query-result-quicklook-mode)
+            (erase-buffer)
+            (insert cell-data))
+          (setq buffer-read-only t))
+        (pop-to-buffer buf)))))
+
+(define-derived-mode pona:
+  text-mode "Result Quicklook Mode"
+  "Major mode for quicklooking the result data.
+\\{edbi:dbview-query-result-quicklook-mode-map}"
+  (setq case-fold-search nil))
+
+(defvar pona:package-detail-versions-table-keymap
+  (pona:add-keymap
+   ctbl:table-mode-map
+   '(
+     ("SPC" . pona:package-detail-versions-quicklook-command)
+     )) "Keymap for the package detail table.")
+
+(defun pona:insert-package-detail-versions-table (package)
+  (let* ((param
+          (copy-ctbl:param ctbl:default-rendering-param))
+         (column-models
+          (list
+           (make-ctbl:cmodel :title "Version" :align 'right :min-width 9)
+           (make-ctbl:cmodel :title "Mask"    :align 'left  :min-width 6)
+           (make-ctbl:cmodel :title "IUse"    :align 'left  :min-width 6 :max-width 30)
+           (make-ctbl:cmodel :title "Depend"  :align 'left  :min-width 8 :max-width 40)))
+         (data
+          (loop for v in (reverse (pona:package-versions package))
+                collect 
+                (list 
+                 (concat
+                  (if (pona:version-installed v) "*" "") 
+                  (pona:version-id v))
+                 (or (pona:version-mask v) "")
+                 (pona:version-iuse v)
+                 (pona:version-depend v)
+                 v)))
+         (model
+          (make-ctbl:model
+           :column-model column-models :data data)))
+    (setf (ctbl:param-bg-colors param)
+          (lambda (model row-id col-id str)
+            (when (= 0 col-id)
+              (let* ((rows (ctbl:model-data model))
+                     (row  (nth row-id rows))
+                     (v (nth 4 row)))
+                (if (pona:version-installed v) "LightPink" nil)))))
+    (ctbl:create-table-component-region 
+     :keymap pona:package-detail-versions-table-keymap
+     :model model :param param)))
 
 (defun pona:insert-deferred (buf d)
   (lexical-let ((buf buf))
