@@ -29,10 +29,14 @@
 (require 'concurrent)
 (require 'ctable)
 (require 'xml)
+(require 'ansi-color)
 
 ;;; Customize variables
 
 (defvar pona:portage-dir "/usr/portage" "pona:portage-dir.")
+
+(defvar pona:package-equery-use-native-highlighting t
+  "When non-nil, use equery's native highlighting.")
 
 (defface pona:face-title
   '((((class color) (background light))
@@ -222,7 +226,9 @@ If not found, return nil."
 
 (defun pona:package-equery-use-d (package)
   "Return a deferred text for details of use flags of PACKAGE."
-  (deferred:process "equery" "-C" "uses" 
+  (deferred:process "equery"
+    (unless pona:package-equery-use-native-highlighting "-C")
+    "uses"
     (format "%s/%s"
             (pona:package-category-name package)
             (pona:package-name package))))
@@ -726,10 +732,13 @@ PACKAGE"
     (deferred:nextc d
       (lambda (text)
         (with-current-buffer buf
-          (let ((buffer-read-only))
-            (goto-char (point-max))
+          (let ((buffer-read-only) (saved-point-max 0))
+            (goto-char (setq saved-point-max (point-max)))
+            ;; for some reason (ansi-color-apply text) here wouldn't do
             (insert text)
-            (goto-char (point-min))))))))
+            (goto-char (point-min))
+            (when pona:package-equery-use-native-highlighting
+              (ansi-color-apply-on-region saved-point-max (point-max)))))))))
 
 
 
